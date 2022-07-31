@@ -1,0 +1,191 @@
+#include <iostream>
+#include <string>
+#include <cmath>
+#include<intrin.h>
+using namespace std;
+__m128 op1, op2, op3，op4;//SSE
+
+//数据填充
+string padding(string str) {
+	string res = "";
+	for (int i = 0; i < str.size(); i++) {
+		res += DecToHex((int)str[i]);
+	}
+	int res_length = res.size() * 4;
+	res += "8";//数据后补1
+	while (res.size() % 128 != 112) {
+		res += "0";//补0
+	}
+	string res_len = DecToHex(res_length);
+	while (res_len.size() != 16) {
+		res_len = "0" + res_len;
+	}
+	res += res_len;//补数据长度
+	return res;
+}
+
+//循环左移
+string LeftShift(string str, int len) {
+	string res = HexToBin(str);
+	res = res.substr(len) + res.substr(0, len);
+	return BinToHex(res);
+}
+
+__m256i round_shift_left(__m256i str_i, int length)
+{
+	length = length % 32;
+	__m256i op1, op2, op3, op4;
+	__m256i mask = _mm256_set1_epi32(0xffffffff);
+	op2 = _mm256_and_si256(mask, _mm256_slli_epi32(str_i, length));
+	op3 = _mm256_srli_epi32(_mm256_and_si256(mask,str_i), 32 - length);
+	op4 = _mm256_or_si256(op2, osp3);
+	return op4;
+}
+
+string P1(string str) {//实现置换功能P1（X）
+	return XOR(XOR(str, LeftShift(str, 15)), LeftShift(str, 23));
+}
+
+__m256i P1(__m256i str_i)
+{
+	__m256i op1 = LeftShift(str_i, 15);
+	__m256i op2 = LeftShift(str_i, 23);
+	__m256i op3 = _mm256_xor_epi32(op1, op2);
+	__m256i op4 = _mm256_xor_epi32(op3, str_i);
+	return op4;
+}
+
+string P0(string str) {//实现置换功能P0（X）
+	return XOR(XOR(str, LeftShift(str, 9)), LeftShift(str, 17));
+}
+
+__m256i P0(__m256i str_i)
+{
+	__m256i op1 = LeftShift(str_i, 9);
+	__m256i op2 = LeftShift(str_i, 17);
+	__m256i op3 = _mm256_xor_epi32(op1, op2);
+	__m256i op4 = _mm256_xor_epi32(op3, str_i);
+	return op4;
+}
+
+string T(int j) {//返回Tj常量值的函数实现
+	if (0 <= j && j <= 15) {
+		return "79CC4519";
+	}
+	else {
+		return "7A879D8A";
+	}
+}
+
+//FFj
+string FF(string str1, string str2, string str3, int j) {
+	if (0 <= j && j <= 15) {
+		return XOR(XOR(str1, str2), str3);
+	}
+	else {
+		return OR(OR(AND(str1, str2), AND(str1, str3)), AND(str2, str3));
+	}
+}
+
+__m512i FFi(__m512i str1_i, __m512i str2_i, __m512i str3_i, int j)
+{
+	if (0 <= j && j <= 15)
+	{
+		return _mm512_xor_epi64(str3_i, _mm512_xor_epi64(str1_i, str2_i));
+	}
+	else
+	{
+		__m512i op1 = _mm512_and_epi64(str1_i, str2_i);
+		__m512i op2 = _mm512_and_epi64(str1_i, str3_i);
+		__m512i op3 = _mm512_and_epi64(str2_i, str3_i);
+		return _mm512_or_epi64(op1, _mm512_or_epi64(op2, op3));
+	}
+}
+
+//GGj
+string GG(string str1, string str2, string str3, int j) {
+	if (0 <= j && j <= 15) {
+		return XOR(XOR(str1, str2), str3);
+	}
+	else {
+		return OR(AND(str1, str2), AND(NOT(str1), str3));
+	}
+}
+
+__m512i GGi(__m512i str1_i, __m512i str2_i, __m512i str3_i, int j)
+{
+	if (0 <= j && j <= 15)
+	{
+		return _mm512_xor_epi64(z, _mm512_xor_epi64(x, y));
+	}
+	else
+	{
+		__m512i mask = _mm512_set1_epi64(0xffffffffffffffff);
+		__m512i op1 = _mm512_and_epi64(str1_i, str2_i);
+		__m512i op2 = _mm512_xor_epi64(str1_i, mask);
+		__m512i op3 = _mm512_andnot_epi64(op2, str3_i);
+		return _mm512_or_epi64(op1, op3);
+	}
+}
+
+//消息扩展
+string extension(string str) {
+	string res = str;
+	for (int i = 16; i < 68; i++) {//生成64位W值
+		res += XOR(XOR(P1(XOR(XOR(res.substr((i - 16) * 8, 8), res.substr((i - 9) * 8, 8)), LeftShift(res.substr((i - 3) * 8, 8), 15))), LeftShift(res.substr((i - 13) * 8, 8), 7)), res.substr((i - 6) * 8, 8));
+	}
+	for (int i = 0; i < 64; i++) {//生成64位W'值
+		res += XOR(res.substr(i * 8, 8), res.substr((i + 4) * 8, 8));
+	}
+	return res;
+}
+
+//消息压缩
+string compress(string str1, string str2) {
+	string IV = str2;
+	string A = IV.substr(0, 8), B = IV.substr(8, 8), C = IV.substr(16, 8), D = IV.substr(24, 8), E = IV.substr(32, 8), F = IV.substr(40, 8), G = IV.substr(48, 8), H = IV.substr(56, 8);
+	string s1 = "", s2 = "", t1 = "", t2 = "";
+	for (int j = 0; j < 64; j++) {
+		s1 = LeftShift(ModAdd(ModAdd(LeftShift(A, 12), E), LeftShift(T(j), (j % 32))), 7);
+		s2 = XOR(s1, LeftShift(A, 12));
+		t1 = ModAdd(ModAdd(ModAdd(FF(A, B, C, j), D), s2), str1.substr((j + 68) * 8, 8));
+		t2 = ModAdd(ModAdd(ModAdd(GG(E, F, G, j), H), s1), str1.substr(j * 8, 8));
+		D = C;
+		C = LeftShift(B, 9);
+		B = A;
+		A = t1;
+		H = G;
+		G = LeftShift(F, 19);
+		F = E;
+		E = P0(t2);
+	}
+	string res = (A + B + C + D + E + F + G + H);
+	return res;
+}
+
+//迭代压缩
+string iteration(string str) {
+	int num = str.size() / 128;
+	string V = "7380166F4914B2B9172442D7DA8A0600A96F30BC163138AAE38DEE4DB0FB0E4E";
+	string B = "", extensionB = "", compressB = "";
+	for (int i = 0; i < num; i++) {
+		B = str.substr(i * 128, 128);
+		extensionB = extension(B);
+		compressB = compress(extensionB, V);
+		V = XOR(V, compressB);
+	}
+	return V;
+}
+
+int main() {//主函数
+	string str[2];
+	str[0] = "abc";
+	cout << "输入消息: " + str[0] << endl;
+	string paddingValue = padding(str[0]);//消息填充
+	string result = iteration(paddingValue);//迭代压缩
+	cout << "杂凑值：" << endl;
+	for (int i = 0; i < 8; i++) {
+		cout << result.substr(i * 8, 8) << "  ";
+	}
+	cout << endl;
+}
